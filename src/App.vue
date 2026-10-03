@@ -9,6 +9,19 @@ const route = useRoute()
 const store = useImpositionStore()
 const mobileOpen = ref(false)
 const title = computed(() => String(route.meta.title ?? '拼版工作台'))
+const baselineTag = computed(() => (
+  store.baselineState === 'locked' ? '基线已锁定'
+    : store.baselineState === 'invalid' ? '基线已失效'
+      : store.baselineState === 'stale' ? '协作已更新'
+        : '未提交基线'
+))
+const baselineSeverity = computed(() => (store.locked ? 'success' : store.baselineState === 'none' ? 'info' : 'warn') as 'success' | 'info' | 'warn')
+const baselineText = computed(() => (
+  store.baselineState === 'locked' ? '基线已审批锁定'
+    : store.baselineState === 'invalid' ? '基线失效 · 待重新预检'
+      : store.baselineState === 'stale' ? '协作窗口已提交新版本'
+        : `${store.validations.length} 项预检提示`
+))
 const nav = [
   { to: '/', label: '生产总览', icon: 'pi pi-chart-pie' },
   { to: '/imposition', label: '拼版工作区', icon: 'pi pi-th-large' },
@@ -20,15 +33,15 @@ const nav = [
 
 <template>
   <div class="shell">
-    <header class="mobile-bar"><Button icon="pi pi-bars" text severity="contrast" @click="mobileOpen = !mobileOpen" /><strong>{{ title }}</strong><Tag :value="store.locked ? '已锁定' : '编辑中'" :severity="store.locked ? 'success' : 'warn'" /></header>
+    <header class="mobile-bar"><Button icon="pi pi-bars" text severity="contrast" @click="mobileOpen = !mobileOpen" /><strong>{{ title }}</strong><Tag :value="baselineTag" :severity="baselineSeverity" /></header>
     <aside :class="{ open: mobileOpen }">
       <div class="brand"><div class="brand-mark">拼版</div><div><strong>印刷生产中心</strong><small>《潮汐来信》节目册</small></div></div>
       <nav>
         <RouterLink v-for="item in nav" :key="item.to" :to="item.to" @click="mobileOpen = false"><i :class="item.icon" />{{ item.label }}</RouterLink>
       </nav>
       <div class="sidebar-status">
-        <div><span :class="{ warn: !store.locked }" />{{ store.locked ? '基线已审批锁定' : `${store.validations.length} 项预检提示` }}</div>
-        <small>版本 {{ store.revision }} · 自动保存草稿</small>
+        <div><span :class="{ warn: !store.locked, stale: store.baselineState === 'stale' }" />{{ baselineText }}</div>
+        <small>{{ store.revisionLabel }} · {{ store.isDirty ? '草稿有未提交改动' : '草稿已同步' }}</small>
       </div>
     </aside>
     <main><RouterView /></main>
@@ -50,6 +63,7 @@ nav a.router-link-active { color: white; background: #3a555d; box-shadow: inset 
 .sidebar-status div { font-size: 11px; font-weight: 700; }
 .sidebar-status span { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: #58b38a; }
 .sidebar-status span.warn { background: #d9a04d; }
+.sidebar-status span.stale { background: #4d8fd9; }
 .sidebar-status small { display: block; margin-top: 6px; color: #96a9ae; font-size: 9px; }
 main { min-width: 0; margin-left: 244px; }
 .mobile-bar { display: none; }

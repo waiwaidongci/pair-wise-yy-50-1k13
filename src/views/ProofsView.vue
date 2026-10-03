@@ -45,7 +45,7 @@ function save() {
             <div class="print-sample"><span>P1 / P8</span><strong>潮汐来信</strong><i>数字样张色靶</i></div>
             <div>
               <strong>{{ sampleFile }}</strong>
-              <p>样张文件已关联当前拼版版本 {{ store.revision }}，包含 P1、P3、P7、P8 重点页面。</p>
+              <p>样张文件已关联当前拼版版本 {{ store.revisionLabel }}，包含 P1、P3、P7、P8 重点页面。</p>
               <label class="file-button"><i class="pi pi-upload" /> 替换样张照片<input type="file" accept="image/*,.pdf,.tif" style="display:none" @change="sampleFile = ($event.target as HTMLInputElement).files?.[0]?.name ?? sampleFile" /></label>
             </div>
           </div>

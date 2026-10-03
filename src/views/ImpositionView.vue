@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import Button from 'primevue/button'
 import SelectButton from 'primevue/selectbutton'
 import Slider from 'primevue/slider'
 import Tag from 'primevue/tag'
 import Message from 'primevue/message'
+import Select from 'primevue/select'
+import InputNumber from 'primevue/inputnumber'
 import ImpositionCanvas from '../components/ImpositionCanvas.vue'
 import { useImpositionStore } from '../stores/imposition'
 
@@ -13,7 +15,12 @@ const sideOptions = [
   { label: '正面', value: 'front' },
   { label: '反面', value: 'back' },
 ]
+const bindingOptions = ['骑马订', '胶订']
+const foldOptions = ['左翻', '右翻']
+const grainOptions = ['纵向', '横向']
+
 const selected = computed(() => store.positions.find((item) => item.id === store.selectedPosition))
+const selectedPage = computed(() => store.pages.find((page) => page.pageNo === selected.value?.pageNo))
 const activeValidations = computed(() => store.validations.filter((item) => !item.pageNo || item.pageNo === selected.value?.pageNo || sideContains(item.pageNo)))
 
 function sideContains(pageNo?: number) {
@@ -33,9 +40,42 @@ function locate(pageNo?: number) {
 <template>
   <section class="page">
     <div class="page-head">
-      <div><p class="eyebrow">IMPOSITION / 拼版工作区</p><h1>Canvas 版位编排与预检</h1><p class="muted">拖拽页面位置，系统实时检查出血、安全区、重叠和骑马订方向。</p></div>
-      <div class="actions"><Button label="批量校验" icon="pi pi-check-circle" outlined /><Button label="保存拼版版本" icon="pi pi-save" @click="store.revision = `R${Number(store.revision.slice(1)) + 1}`" /></div>
+      <div>
+        <p class="eyebrow">IMPOSITION / 拼版工作区</p>
+        <h1>Canvas 版位编排与预检放行</h1>
+        <p class="muted">版位、出血或折手方向一改，已锁定的审批基线立即失效，需重新预检后提交新版本。</p>
+      </div>
+      <div class="actions">
+        <Button label="重新预检" icon="pi pi-check-circle" outlined :loading="store.saving" @click="store.runPreflight" />
+        <Button
+          :label="store.baselineState === 'none' ? '提交首版并锁定' : '提交基线并锁定'"
+          icon="pi pi-lock"
+          :loading="store.saving"
+          :disabled="store.preflightStale"
+          @click="store.commitBaseline()"
+        />
+      </div>
     </div>
+
+    <!-- 基线状态横幅 -->
+    <Message v-if="store.message" :severity="store.message.type === 'success' ? 'success' : store.message.type === 'conflict' ? 'error' : store.message.type === 'error' ? 'error' : 'info'" :closable="true" class="mb-3" @close="store.message = null">
+      {{ store.message.text }}
+    </Message>
+    <Message v-if="store.baselineState === 'locked' && !store.message" severity="success" :closable="false" class="mb-3">
+      审批基线已锁定 {{ store.revisionLabel }}，与服务端一致{{ store.lastPreflightAt ? ` · 最近预检 ${store.lastPreflightAt}` : '' }}。
+    </Message>
+    <Message v-else-if="store.baselineState === 'invalid'" severity="warn" :closable="false" class="mb-3">
+      版位 / 出血 / 折手方向已变更，审批基线已失效。请重新预检后提交新版本。
+      <Button label="重新预检" size="small" text @click="store.runPreflight" />
+    </Message>
+    <Message v-else-if="store.baselineState === 'stale'" severity="warn" :closable="false" class="mb-3">
+      协作窗口已提交 {{ store.revisionLabel }}，你的草稿基于 R{{ store.baseRevision }}。
+      <Button label="重新载入新基线" size="small" text @click="store.rebaseToServer" />
+      <Button label="仍保存为冲突副本" size="small" text severity="danger" @click="store.commitBaseline()" />
+    </Message>
+    <Message v-else-if="store.baselineState === 'none' && !store.message" severity="info" :closable="false" class="mb-3">
+      尚未提交审批基线。编辑版位与规格后，重新预检并提交首版。
+    </Message>
 
     <Message v-if="store.validations.length" severity="warn" :closable="false" class="mb-3">
       当前版本有 {{ store.validations.filter((item) => item.severity === '错误').length }} 个阻断错误和 {{ store.validations.filter((item) => item.severity === '警告').length }} 个警告。
@@ -45,9 +85,16 @@ function locate(pageNo?: number) {
       <SelectButton v-model="store.side" :options="sideOptions" optionLabel="label" optionValue="value" />
       <span class="muted">缩放 {{ store.zoom }}%</span>
       <Slider v-model="store.zoom" :min="35" :max="100" :step="5" style="width:150px" />
-      <span class="paper-spec">720 × 1020mm · 出血 3mm · 安全区 5mm · {{ store.locked ? '基线只读' : '编辑中' }}</span>
-      <Button v-if="!store.locked" label="审批锁定" icon="pi pi-lock" size="small" @click="store.lockBaseline" />
-      <Button v-else label="解锁修订" icon="pi pi-lock-open" size="small" severity="warn" outlined @click="store.unlock" />
+      <span class="paper-spec">720 × 1020mm · 安全区 5mm · 状态：{{ store.locked ? '基线已锁定' : '编辑中' }}</span>
+      <Button label="模拟协作窗口抢先保存" icon="pi pi-users" size="small" text severity="secondary" @click="store.simulateCollaborator" />
+    </div>
+
+    <div class="spec-bar panel">
+      <div class="spec-item"><label>装订方式</label><Select v-model="store.spec.binding" :options="bindingOptions" /></div>
+      <div class="spec-item"><label>折手方向</label><Select v-model="store.spec.foldDirection" :options="foldOptions" /></div>
+      <div class="spec-item"><label>纸纹方向</label><Select v-model="store.spec.grain" :options="grainOptions" /></div>
+      <div class="spec-item"><label>基准出血 (mm)</label><InputNumber v-model="store.spec.bleed" :min="1" :max="6" :minFractionDigits="0" :maxFractionDigits="0" suffix=" mm" /></div>
+      <p class="spec-hint">改动装订 / 折手 / 纸纹 / 出血会立即作废已锁定基线并触发重新预检。</p>
     </div>
 
     <div class="imposition-grid">
@@ -80,11 +127,15 @@ function locate(pageNo?: number) {
       <aside class="right-panel">
         <section class="panel">
           <div class="panel-head"><h3>版位属性</h3><Tag v-if="selected" :value="selected.id" /></div>
-          <div v-if="selected" class="properties">
+          <div v-if="selected && selectedPage" class="properties">
             <label>页面<select :value="selected.pageNo" @change="store.updatePosition(selected.id, { pageNo: Number(($event.target as HTMLSelectElement).value) })"><option v-for="page in store.pages" :key="page.pageNo" :value="page.pageNo">P{{ page.pageNo }} · {{ page.name }}</option></select></label>
-            <div class="pair"><label>X<input type="number" :value="selected.x" @change="store.updatePosition(selected.id, { x: Number(($event.target as HTMLInputElement).value) })" /></label><label>Y<input type="number" :value="selected.y" @change="store.updatePosition(selected.id, { y: Number(($event.target as HTMLInputElement).value) })" /></label></div>
+            <div class="pair">
+              <label>X<input type="number" :value="selected.x" @change="store.updatePosition(selected.id, { x: Number(($event.target as HTMLInputElement).value) })" /></label>
+              <label>Y<input type="number" :value="selected.y" @change="store.updatePosition(selected.id, { y: Number(($event.target as HTMLInputElement).value) })" /></label>
+            </div>
             <label>旋转方向<select :value="selected.rotation" @change="store.updatePosition(selected.id, { rotation: Number(($event.target as HTMLSelectElement).value) })"><option :value="0">0°</option><option :value="90">顺时针 90°</option><option :value="180">倒置 180°</option><option :value="270">顺时针 270°</option></select></label>
-            <div class="binding-note"><i class="pi pi-info-circle" /><span>{{ store.pages.find((page) => page.pageNo === selected?.pageNo)?.content }}</span></div>
+            <label>页面出血 (mm)<InputNumber :modelValue="selectedPage.bleed" :min="0" :max="6" :minFractionDigits="0" :maxFractionDigits="0" suffix=" mm" @update:modelValue="store.updatePageBleed(selectedPage.pageNo, Number($event))" /></label>
+            <div class="binding-note"><i class="pi pi-info-circle" /><span>{{ selectedPage.content }}</span></div>
           </div>
           <div v-else class="empty">在画布中选择一个版位以编辑属性。</div>
         </section>
@@ -109,6 +160,11 @@ function locate(pageNo?: number) {
 .mb-3 { margin-bottom: 12px; }
 .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; padding: 12px; }
 .paper-spec { margin-left: auto; color: #5d7077; font-size: 11px; }
+.spec-bar { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; margin-bottom: 12px; padding: 12px 14px; }
+.spec-item { display: grid; gap: 5px; }
+.spec-item label { color: #5f7076; font-size: 11px; font-weight: 700; }
+.spec-item :deep(.p-select) { min-width: 130px; }
+.spec-hint { margin: 0 0 2px auto; color: #8a979c; font-size: 10px; }
 .imposition-grid { display: grid; grid-template-columns: 220px minmax(0,1fr) 340px; gap: 12px; align-items: start; }
 .pages-panel { max-height: 760px; overflow: auto; }
 .page-list { padding: 8px; }
