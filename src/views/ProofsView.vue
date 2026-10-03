@@ -16,6 +16,12 @@ const sampleFile = ref('当前使用数字样张 v2_09025.tif')
 
 function save() {
   store.updateProof(draft.value.id, draft.value)
+  store.commit(`保存打样记录 ${draft.value.id}`)
+}
+
+function addProof() {
+  store.createProof()
+  store.commit('新建打样轮次')
 }
 </script>
 
@@ -23,7 +29,7 @@ function save() {
   <section class="page">
     <div class="page-head">
       <div><p class="eyebrow">PROOFING / 打样审批</p><h1>打样轮次与色彩反馈</h1><p class="muted">每轮记录样张、色差、修正说明与负责人决定，修改后生成新拼版版本。</p></div>
-      <Button label="新建打样轮次" icon="pi pi-plus" @click="store.createProof" />
+      <Button label="新建打样轮次" icon="pi pi-plus" @click="addProof" />
     </div>
 
     <div class="proof-layout">
